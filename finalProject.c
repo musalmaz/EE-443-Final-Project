@@ -12,19 +12,27 @@
 	
 #define WIDTH 320
 #define HEIGHT 240
+
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 	
 void load_screen();
 void clear_screen(bool clear_text_box);
 void wait_for_vsync();
-void counting_down();
-void draw_block(int x_start, int y_start, int colour, int size);
+void loadCanvas(const char *filename);
+
 
 volatile int* pixel_ctrl_ptr;
 volatile int pixel_buffer_start;
 
-int reset;
-
 int canvas[HEIGHT][WIDTH];
+
+short int sphereCanvas[HEIGHT][WIDTH];
+int sphereX = 290; // Initial X position of the sphere
+int sphereY = 205; // Initial Y position of the sphere
+int radius = 10;   // Radius of the sphere
+int velocityX = 4; // X velocity
+int velocityY = 2; // Y velocity
 
 
 void plot_pixel(int x, int y, short int line_color){   
@@ -45,27 +53,7 @@ void draw_maze(short int background_color, short int wall_color) {
     }
 }
 
-void loadCanvas(const char *filename) {
-    FILE *file = fopen(filename, "r");
-    if (file == NULL) {
-        perror("Error opening file");
-        return;
-    }
 
-    for (int i = 0; i < 240; i++) {
-        for (int j = 0; j < 320; j++) {
-            if (fscanf(file, "%d,", &canvas[i][j]) != 1) {
-                perror("Error reading file");
-                fclose(file);
-                return;
-            }
-        }
-    }
-
-    fclose(file);
-}
-
-short int sphereCanvas[HEIGHT][WIDTH];
 
 // Initialize sphere_canvas array to zero
 void init_sphere_canvas() {
@@ -78,6 +66,7 @@ void init_sphere_canvas() {
 
 // Fill the sphereCanvas with the filled circle
 void draw_filled_circle_in_array(int center_x, int center_y, int radius) {
+	init_sphere_canvas();
     for (int y = -radius; y <= radius; y++) {
         for (int x = -radius; x <= radius; x++) {
             if (x * x + y * y <= radius * radius) {
@@ -110,6 +99,47 @@ void combine_and_draw(short int background_color, short int wall_color, short in
     }
 }
 
+void move_sphere() {
+    // Predict the next position
+    int nextX = sphereX + velocityX;
+    int nextY = sphereY + velocityY;
+
+    // Check for horizontal collision
+    for (int y = -radius; y <= radius; y++) {
+        if (nextY + y >= 0 && nextY + y < HEIGHT) {
+            if ((nextX - radius >= 0 && canvas[nextY][nextX - radius] == 1 && velocityX < 0) ||
+                (nextX + radius < WIDTH && canvas[nextY][nextX + radius] == 1 && velocityX > 0)) {
+                velocityX = -velocityX;
+                break; // Break after detecting any collision
+            }
+        }
+    }
+
+    // Check for vertical collision
+    for (int x = -radius; x <= radius; x++) {
+        if (nextX + x >= 0 && nextX + x < WIDTH) {
+            if ((nextY - radius >= 0 && canvas[nextY - radius][nextX] == 1 && velocityY < 0) ||
+                (nextY + radius < HEIGHT && canvas[nextY + radius][nextX] == 1 && velocityY > 0)) {
+                velocityY = -velocityY;
+                break; // Break after detecting any collision
+            }
+        }
+    }
+
+    // Update sphere position based on updated velocity
+    sphereX += velocityX;
+    sphereY += velocityY;
+
+    // Keep the sphere within bounds
+    sphereX = max(0, min(sphereX, WIDTH - 1));
+    sphereY = max(0, min(sphereY, HEIGHT - 1));
+
+	// printf("vel x : %d\n", velocityX);
+	// printf("vel y : %d\n", velocityY);
+	// Draw sphere again
+	draw_filled_circle_in_array(sphereX, sphereY, radius);
+}
+
 int main(void)
 {
 
@@ -134,12 +164,16 @@ int main(void)
 
   draw_maze(PINK, BLACK);
 	
-  draw_filled_circle_in_array(290, 205, 10);
+  draw_filled_circle_in_array(sphereX, sphereY, radius);
 	
   combine_and_draw(WHITE, BLACK, BLUE);
-	
 
-  //plot_filled_circle(290, 205, 10, BLACK);
+  while(1){
+	  move_sphere();
+	  combine_and_draw(GREEN, RED, BLUE);
+  }
+	  
+
 	
   return 0;
 }
@@ -185,7 +219,28 @@ void clear_screen(bool clear_text_box) {
   }
 }
 
-int canvas[240][320] = {{0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
+// Initialize canvas from a csv file
+void loadCanvas(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    for (int i = 0; i < 240; i++) {
+        for (int j = 0; j < 320; j++) {
+            if (fscanf(file, "%d,", &canvas[i][j]) != 1) {
+                perror("Error reading file");
+                fclose(file);
+                return;
+            }
+        }
+    }
+
+    fclose(file);
+}
+
+canvas[240][320] = {{0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
 {0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
 {0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
 {0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
