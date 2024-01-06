@@ -16,6 +16,40 @@
 #define WIDTH 320
 #define HEIGHT 240
 
+////////////// Accelerometer Defines Start //////////////
+#define SYSMGR_GENERALIO7 ((volatile unsigned int *) 0xFFD0849C)
+#define SYSMGR_GENERALIO8 ((volatile unsigned int *) 0xFFD084A0)
+#define SYSMGR_I2C0USEFPGA ((volatile unsigned int *) 0xFFD08704)
+
+#define I2C0_ENABLE ((volatile unsigned int * ) 0xFFC0406C)
+#define I2C0_ENABLE_STATUS ((volatile unsigned int * ) 0xFFC0409C)
+#define I2C0_CON ((volatile unsigned int * ) 0xFFC04000)
+#define I2C0_TAR ((volatile unsigned int * ) 0xFFC04004)
+#define I2C0_FS_SCL_HCNT ((volatile unsigned int * ) 0xFFC0401C)
+#define I2C0_FS_SCL_LCNT ((volatile unsigned int * ) 0xFFC04020)
+#define I2C0_DATA_CMD ((volatile unsigned int * ) 0xFFC04010)
+#define I2C0_RXFLR ((volatile unsigned int * ) 0xFFC04078)
+
+#define ADXL345_REG_DEVID 0x00
+#define ADXL345_REG_DATA_FORMAT 0x31
+#define ADXL345_REG_POWER_CTL 0x2D
+#define ADXL345_REG_BW_RATE 0x2C
+#define ADXL345_REG_INT_SOURCE 0x30
+
+#define XL345_RANGE_2G 0x00
+#define XL345_FULL_RESOLUTION 0x08
+#define XL345_RATE_100 0x0A
+#define XL345_STANDBY 0x00
+#define XL345_MEASURE 0x08
+#define XL345_DATAREADY 0x80
+
+#define N 9
+struct SevenSegForm;
+////////////// Accelerometer Defines End //////////////
+
+#define HEX_0 ((volatile unsigned int *) 0xFF200020)
+#define LEDR_BASE ((volatile unsigned int * ) 0xFF200000)
+
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
@@ -33,6 +67,21 @@ void draw_filled_circle_in_array(int center_x, int center_y, int radius);
 void combine_and_draw(short int background_color, short int wall_color, short int circle_color);
 void move_sphere();
 
+/////////// Accelerometer Functions Start ///////////
+void Pinmux_Config();
+void I2C0_Init();
+void ADXL345_REG_READ(uint8_t address, uint8_t * value);
+static void ADXL345_REG_WRITE(uint8_t address, uint8_t value);
+void ADXL345_Init();
+void ADXL345_REG_MULTI_READ(uint8_t address, uint8_t values[], uint8_t len);
+void ADXL345_XYZ_Read(int16_t szData16[3]);
+bool ADXL345_IsDataReady();
+void display(int16_t XYZ[3]);
+struct SevenSegForm to_SevenSegForm(int16_t number);
+int8_t to_7seg(int8_t number);
+float processSample(float *coefficients, float *buffer, int *startIndex, float newSample);
+/////////// Accelerometer Functions End ///////////
+
 volatile int *pixel_ctrl_ptr;
 volatile int pixel_buffer_start;
 
@@ -46,6 +95,8 @@ int sphereY = 205; // Initial Y position of the sphere
 int radius = 10;   // Radius of the sphere
 int velocityX = 4; // X velocity
 int velocityY = 2; // Y velocity
+int sensivity = 100; // Sensivity of the accelerometer
+bool accelerometer_on = false;
 
 short int BACKGROUND_COLOR;
 short int WALL_COLOR;
@@ -53,8 +104,50 @@ short int SPHERE_COLOR;
 
 int main(void)
 {
+    /////////////////////// Configure accelerometer //////////////////////////////
+    if (accelerometer_on) {
+        uint8_t devid;
+        int16_t mg_per_lsb = 10;
+        int16_t XYZ[3];
 
-    /*************************Initializing front/back pixel buffer ****************************/
+        // Configure Pin Muxing
+        Pinmux_Config();
+
+        // Initialize I2C0 Controller
+        I2C0_Init();
+
+        // 0xE5 is read from DEVID(0x00) if I2C is functioning correctly
+        ADXL345_REG_READ(0x00, & devid);
+
+        if (devid == 0xE5) {
+            // Initialize accelerometer chip
+            ADXL345_Init();
+
+            // while (1) {
+            //     if (ADXL345_IsDataReady()) {
+            //         ADXL345_XYZ_Read(XYZ);
+            //         printf("X=%d mg, Y=%d mg, Z=%d mg\n", XYZ[0] * mg_per_lsb,
+            //         XYZ[1] * mg_per_lsb, XYZ[2] * mg_per_lsb);
+            //         display(XYZ);
+            //     }
+            // }
+
+        } else {
+            printf("Incorrect device ID\n");
+        }
+    }
+
+    // FIR filter coefficients
+    float filterCoefficients[N] = {-0.0553, 0.0465, 0.1513, 0.2611, 0.3080, 0.2611, 0.1513, 0.0465, -0.0553};
+
+    // Circular buffer to hold the recent N samples
+    float circularBuffer[N] = {0};
+
+    // Start index for the circular buffer
+    int startIndex = 0;
+
+
+    ///////////////// Initializing front/back pixel buffer ////////////////////////
 
     pixel_ctrl_ptr = (int *)0xFF203020; // pointing at the front buffer
     *(pixel_ctrl_ptr + 1) = 0xC8000000; // first store the address in the back buffer
@@ -86,7 +179,7 @@ int main(void)
         }
     }
 
-    // Setup is finished, start the game :)
+    //////////////////// Setup is finished, start the game :) ////////////////////
     draw_maze(PINK, BLACK);
 
     draw_filled_circle_in_array(sphereX, sphereY, radius);
@@ -95,6 +188,18 @@ int main(void)
 
     while (1)
     {
+        // Read the accelerometer data
+        if (accelerometer_on) {
+            int16_t XYZ[3];
+            ADXL345_XYZ_Read(XYZ);
+            XYZ[0] = XYZ[0] / 2.8;
+            XYZ[1] = XYZ[1] / 2.8;
+            XYZ[2] = XYZ[2] / 2.8;
+
+            velocityX = processSample(filterCoefficients, circularBuffer, &startIndex, XYZ[0]) / sensivity;
+            velocityY = processSample(filterCoefficients, circularBuffer, &startIndex, XYZ[1]) / sensivity;
+        }
+
         move_sphere();
         combine_and_draw(GREEN, RED, BLUE);
     }
@@ -366,6 +471,215 @@ void loadCanvas(const char *filename)
 
     fclose(file);
 }
+
+////////////// Accelerometer Functions Start //////////////
+void Pinmux_Config() {
+  * SYSMGR_I2C0USEFPGA = 0;
+  * SYSMGR_GENERALIO7 = 1;
+  * SYSMGR_GENERALIO8 = 1;
+}
+
+void I2C0_Init() {
+
+    // Abort any ongoing transmits and disable I2C0.
+    * I2C0_ENABLE = 2;
+
+    // Wait until I2C0 is disabled
+    while ((( * I2C0_ENABLE_STATUS) & 0x1) == 1) {}
+    // Configure the config reg with the desired setting (act as
+    // a master, use 7bit addressing, fast mode (400kb/s)).
+    * I2C0_CON = 0x65;
+
+    // Set target address (disable special commands, use 7bit addressing)
+    * I2C0_TAR = 0x53;
+
+    // Set SCL high/low counts (Assuming default 100MHZ clock input to
+    //I2C0 Controller).
+    // The minimum SCL high period is 0.6us, and the minimum SCL low
+    //period is 1.3 us,
+    // However, the combined period must be 2.5us or greater, so add 0.3us
+    //to each.
+    * I2C0_FS_SCL_HCNT = 60 + 30; // 0.6us + 0.3us
+    * I2C0_FS_SCL_LCNT = 130 + 30; // 1.3us + 0.3us
+
+    // Enable the controller
+    * I2C0_ENABLE = 1;
+
+    // Wait until controller is powered on
+    while ((( * I2C0_ENABLE_STATUS) & 0x1) == 0) {}
+}
+
+
+// Read value from internal register at address
+void ADXL345_REG_READ(uint8_t address, uint8_t * value) {
+
+    // Send reg address (+0x400 to send START signal)
+    * I2C0_DATA_CMD = address + 0x400;
+    // Send read signal
+    * I2C0_DATA_CMD = 0x100;
+    // Read the response (first wait until RX buffer contains data)
+    while ( * I2C0_RXFLR == 0) {}
+    * value = * I2C0_DATA_CMD;
+}
+
+
+// Write value to internal register at address
+static void ADXL345_REG_WRITE(uint8_t address, uint8_t value) {
+
+	*(I2C0_DATA_CMD) = address + 0x400;
+	*(I2C0_DATA_CMD) = value;
+}
+
+
+void ADXL345_Init() {
+
+	// +- 16g range, full resolution
+	ADXL345_REG_WRITE(ADXL345_REG_DATA_FORMAT, XL345_RANGE_2G | XL345_FULL_RESOLUTION);
+	// Output Data Rate: 100Hz
+	ADXL345_REG_WRITE(ADXL345_REG_BW_RATE, XL345_RATE_100);
+	// stop measure
+	ADXL345_REG_WRITE(ADXL345_REG_POWER_CTL, XL345_STANDBY);
+	// start measure
+	ADXL345_REG_WRITE(ADXL345_REG_POWER_CTL, XL345_MEASURE);
+	
+}
+
+
+// Read multiple consecutive internal registers
+void ADXL345_REG_MULTI_READ(uint8_t address, uint8_t values[], uint8_t len) {
+
+	int i = 0;
+	int nth_byte = 0;
+	*(I2C0_DATA_CMD) = address + 0x400;
+
+	//send read signal multiple times to prevent overwritten data at 
+	//inconsistent times
+
+	for (i = 0; i < len; i++)
+		*
+		(I2C0_DATA_CMD) = 0x100;
+
+	while (len) {
+		if ( * (I2C0_RXFLR) > 0) {
+		values[nth_byte] = * (I2C0_DATA_CMD) & 0xFF;
+		nth_byte++;
+		len--;
+		}
+	}
+}
+
+
+// Read acceleration data of all three axes
+void ADXL345_XYZ_Read(int16_t szData16[3]) {
+
+	uint8_t szData8[6];
+	ADXL345_REG_MULTI_READ(0x32, (uint8_t * ) & szData8, sizeof(szData8));
+
+	szData16[0] = (szData8[1] << 8) | szData8[0];
+	szData16[1] = (szData8[3] << 8) | szData8[2];
+	szData16[2] = (szData8[5] << 8) | szData8[4];
+}
+
+
+// Return true if there is new data
+bool ADXL345_IsDataReady() {
+	bool bReady = false;
+	uint8_t data8;
+
+	ADXL345_REG_READ(ADXL345_REG_INT_SOURCE, & data8);
+	if (data8 & XL345_DATAREADY)
+		bReady = true;
+
+	return bReady;
+}
+
+struct SevenSegForm {
+	uint8_t seg_onces;
+	uint8_t seg_tens;
+	bool is_negative;
+};
+
+int8_t to_7seg(int8_t number) {
+	switch (number) {
+	case 0:
+		return 0x3F;
+	case 1:
+		return 0x06;
+	case 2:
+		return 0x5B;
+	case 3:
+		return 0x4F;
+	case 4:
+		return 0x66;
+	case 5:
+		return 0x6D;
+	case 6:
+		return 0x7D;
+	case 7:
+		return 0x07;
+	case 8:
+		return 0x7F;
+	case 9:
+		return 0x6F;
+	default:
+		return 0x00;
+	}
+}
+
+struct SevenSegForm to_SevenSegForm(int16_t number) {
+	struct SevenSegForm form;
+	form.is_negative = false;
+	if (number < 0) {
+		form.is_negative = true;
+		number = -number;
+	}
+	form.seg_onces = to_7seg(number % 10);
+	form.seg_tens = to_7seg((number / 10) % 10);
+	return form;
+}
+
+
+void display(int16_t XYZ[3]) {
+	struct SevenSegForm form[3];
+	form[0] = to_SevenSegForm(XYZ[0] / 2.6);
+	form[1] = to_SevenSegForm(XYZ[1] / 2.6);
+	form[2] = to_SevenSegForm(XYZ[2] / 2.6);
+	* HEX_0 = form[2].seg_onces;
+	* (HEX_0) += form[2].seg_tens << 8;
+	* (HEX_0) += form[1].seg_onces << 16;
+	* (HEX_0) += form[1].seg_tens << 24;
+	* (HEX_0 + 4) = form[0].seg_onces;
+	* (HEX_0 + 4) += form[0].seg_tens << 8;
+	* (LEDR_BASE) = 0;
+	for (int i = 0; i < 3; i++) {
+		if(form[2 - i].is_negative) {
+			* (LEDR_BASE) += 0x1 << i;
+		}
+	}
+}
+
+float processSample(float *coefficients, float *buffer, int *startIndex, float newSample) {
+    float output = 0;
+    int bufIndex;
+
+    // Update the circular buffer with the new sample
+    buffer[*startIndex] = newSample;
+
+    // Calculate the convolution of the buffer and the filter coefficients
+    bufIndex = *startIndex;
+    for (int i = 0; i < N; i++) {
+        output += buffer[bufIndex] * coefficients[i];
+        bufIndex = (bufIndex != 0) ? (bufIndex - 1) : (N - 1);
+    }
+
+    // Update the start index for the circular buffer
+    *startIndex = (*startIndex + 1) % N;
+
+    return output;
+}
+
+
+////////////// Accelerometer Functions End //////////////
 
 canvas[HEIGHT][WIDTH] = {
     {0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0},
