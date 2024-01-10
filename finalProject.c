@@ -141,10 +141,12 @@ int main(void)
     float filterCoefficients[N] = {-0.0553, 0.0465, 0.1513, 0.2611, 0.3080, 0.2611, 0.1513, 0.0465, -0.0553};
 
     // Circular buffer to hold the recent N samples
-    float circularBuffer[N] = {0};
+    float circularBuffer_x[N] = {0};
+    float circularBuffer_y[N] = {0};
 
     // Start index for the circular buffer
-    int startIndex = 0;
+    int startIndex_x = 0;
+    int startIndex_y = 0;
 
 
     ///////////////// Initializing front/back pixel buffer ////////////////////////
@@ -196,8 +198,8 @@ int main(void)
             XYZ[1] = XYZ[1] / 2.8;
             XYZ[2] = XYZ[2] / 2.8;
 
-            velocityX = processSample(filterCoefficients, circularBuffer, &startIndex, XYZ[0]) / sensivity;
-            velocityY = processSample(filterCoefficients, circularBuffer, &startIndex, XYZ[1]) / sensivity;
+            velocityX = processSample(filterCoefficients, circularBuffer_x, &startIndex_x, XYZ[0]) / sensivity;
+            velocityY = processSample(filterCoefficients, circularBuffer_y, &startIndex_y, XYZ[1]) / sensivity;
         }
 
         move_sphere();
